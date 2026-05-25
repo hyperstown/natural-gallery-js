@@ -293,7 +293,7 @@ export class Natural<Model extends ModelAttributes = ModelAttributes> extends Ab
             return;
         }
 
-        const galleryScrollTop = this.getScrollTop() - this.elementRef.offsetTop;
+        const galleryScrollTop = this.getGalleryScrollTop();
         const viewportTop = Math.max(galleryScrollTop, 0);
         const viewportBottom = viewportTop + this.getViewportHeight();
         const overscan = this.options.virtualScrollOverscanRows * (this.options.rowHeight + this.options.gap);

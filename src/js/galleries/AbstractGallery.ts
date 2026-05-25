@@ -446,6 +446,21 @@ export abstract class AbstractGallery<Model extends ModelAttributes = ModelAttri
         this.addItems(items);
     }
 
+    public scrollToTop(options: ScrollToOptions = {}): void {
+        const scrollOptions = {
+            top: this.getGalleryStartScrollTop(),
+            ...options,
+        };
+
+        if (this.scrollElementRef) {
+            this.scrollElementRef.scrollTo(scrollOptions);
+        } else {
+            this.document.defaultView?.scrollTo(scrollOptions);
+        }
+
+        this.onScrollUpdate();
+    }
+
     /**
      *
      */
@@ -681,6 +696,27 @@ export abstract class AbstractGallery<Model extends ModelAttributes = ModelAttri
         return wrapper.scrollTop - (wrapper.clientTop || 0);
     }
 
+    protected getGalleryScrollTop(): number {
+        if (this.scrollElementRef) {
+            return this.scrollElementRef.getBoundingClientRect().top - this.elementRef.getBoundingClientRect().top;
+        }
+
+        return this.getScrollTop() - this.elementRef.offsetTop;
+    }
+
+    protected getGalleryStartScrollTop(): number {
+        if (this.scrollElementRef) {
+            return Math.max(
+                this.getScrollTop() +
+                    this.elementRef.getBoundingClientRect().top -
+                    this.scrollElementRef.getBoundingClientRect().top,
+                0,
+            );
+        }
+
+        return Math.max(this.getScrollTop() + this.elementRef.getBoundingClientRect().top, 0);
+    }
+
     protected getViewportHeight(): number {
         const wrapper = this.getScrollWrapper();
         return wrapper.clientHeight || this.document.defaultView?.innerHeight || 0;
@@ -723,9 +759,6 @@ export abstract class AbstractGallery<Model extends ModelAttributes = ModelAttri
             startScroll();
             endScroll();
 
-            const endOfGalleryAt =
-                this.elementRef.offsetTop + this.elementRef.offsetHeight + this.options.infiniteScrollOffset;
-
             // Avoid to expand gallery if we are scrolling up
             const current_scroll_top = wrapper.scrollTop - (wrapper.clientTop || 0);
             const wrapperHeight = wrapper.clientHeight;
@@ -734,7 +767,11 @@ export abstract class AbstractGallery<Model extends ModelAttributes = ModelAttri
             this.onScrollUpdate();
 
             // "enableMoreLoading" is a setting coming from the BE bloking / enabling dynamic loading of thumbnail
-            if (scroll_delta > 0 && current_scroll_top + wrapperHeight >= endOfGalleryAt) {
+            if (
+                scroll_delta > 0 &&
+                this.getGalleryScrollTop() + wrapperHeight >=
+                    this.elementRef.offsetHeight + this.options.infiniteScrollOffset
+            ) {
                 // When scrolling only add a row at once
                 this.onScroll();
             }
