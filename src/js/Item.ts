@@ -155,6 +155,10 @@ export class Item<Model extends ModelAttributes> {
      * But depending on settings, we can add <a> inside <figcaption> or wrap around <figure>
      */
     public init(): HTMLElement {
+        if (this._rootElement) {
+            return this._rootElement;
+        }
+
         // Sources
         const figure = this.getFigure();
         const caption = this.getEmptyCaption();

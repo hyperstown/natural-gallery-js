@@ -163,6 +163,23 @@ var gallery = new Natural(elementRef, options);
                     <td></td>
                 </tr>
                 <tr>
+                    <td>virtualScroll</td>
+                    <td>Boolean</td>
+                    <td>false</td>
+                    <td>
+                        <p>Render only the visible window of items while preserving the full collection in memory.</p>
+                        <p>Currently supported by the Natural layout when infinite scroll is active.</p>
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>virtualScrollOverscanRows</td>
+                    <td>Number</td>
+                    <td>2</td>
+                    <td>Number of extra rows rendered before and after the viewport when virtualScroll is enabled.</td>
+                    <td></td>
+                </tr>
+                <tr>
                     <td>objectFit</td>
                     <td>string</td>
                     <td>cover</td>

@@ -32,6 +32,8 @@ export function getBaseExpectedOptions(): Partial<NaturalGalleryOptions> {
         selectable: false,
         activable: false,
         infiniteScrollOffset: 0,
+        virtualScroll: false,
+        virtualScrollOverscanRows: 2,
         photoSwipeOptions: {
             loop: false,
         },

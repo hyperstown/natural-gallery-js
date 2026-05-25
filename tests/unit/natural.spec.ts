@@ -1,7 +1,7 @@
 import {ModelAttributes, Natural} from '../../src';
 import * as domino from 'domino';
 import {describe, expect, it} from 'vitest';
-import {getContainerElement, getSize} from './utils';
+import {getContainerElement, getImages, getSize, scrollTo, setViewport} from './utils';
 import {getBaseExpectedOptions, testGallery} from './abstract-gallery';
 
 describe('Natural Gallery', () => {
@@ -236,5 +236,26 @@ describe('Natural Gallery', () => {
         ];
 
         expect(gallery.collection.map(getSize)).toEqual(result);
+    });
+
+    it('should virtualize natural layout when enabled', () => {
+        setViewport(1000, 700);
+        const container = getContainerElement(1000);
+        const gallery = new Natural(container, {rowHeight: 300, gap: 4, virtualScroll: true});
+
+        gallery.addItems(getImages(100));
+
+        expect(gallery.collection.length).toBe(100);
+        expect(gallery.domCollection.length).toBeLessThan(100);
+        expect(container.querySelectorAll('.figure').length).toBe(gallery.domCollection.length);
+        expect(gallery.bodyElement.style.height).not.toBe('');
+
+        const firstRenderedItem = gallery.domCollection[0];
+        scrollTo(1800);
+
+        expect(gallery.collection.length).toBe(100);
+        expect(gallery.domCollection.length).toBeLessThan(100);
+        expect(gallery.domCollection).not.toContain(firstRenderedItem);
+        expect(container.querySelectorAll('.figure').length).toBe(gallery.domCollection.length);
     });
 });

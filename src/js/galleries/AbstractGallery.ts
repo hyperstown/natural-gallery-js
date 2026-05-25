@@ -121,6 +121,8 @@ export interface GalleryOptions extends ItemOptions {
     rowsPerPage?: number;
     minRowsAtStart?: number;
     infiniteScrollOffset?: number;
+    virtualScroll?: boolean;
+    virtualScrollOverscanRows?: number;
     photoSwipeOptions?: PhotoSwipeOptions;
     photoSwipePluginsInitFn?: ((lighbox: PhotoSwipeLightbox) => void) | null;
     ssr?: {
@@ -144,6 +146,8 @@ export abstract class AbstractGallery<Model extends ModelAttributes = ModelAttri
         selectable: false,
         activable: false,
         infiniteScrollOffset: 0,
+        virtualScroll: false,
+        virtualScrollOverscanRows: 2,
         photoSwipeOptions: {
             loop: false,
         },
@@ -193,7 +197,8 @@ export abstract class AbstractGallery<Model extends ModelAttributes = ModelAttri
     /**
      * Reference to next button element
      */
-    private nextButton: HTMLElement;
+    protected nextButton: HTMLElement;
+    private readonly itemsWithDomListeners = new WeakSet<Item<Model>>();
 
     /**
      *
@@ -224,12 +229,8 @@ export abstract class AbstractGallery<Model extends ModelAttributes = ModelAttri
             // Each time a pagination event is emitted, the offset is logged and then verified to be sure to not ask it
             // twice. That would cause duplicated entries and probably empty buffer with smaller pages. That could
             // cause infinite loading until the end of the gallery
-            if (this.requestedIndexesLog.indexOf(this.collection.length) < 0) {
-                const offset = this.collection.length;
-                this.dispatchEvent('pagination', {offset, limit: this.requiredItems});
-                this.requestedIndexesLog.push(offset);
-                this.requiredItems = 0;
-            }
+            this.requestItems(true, this.requiredItems);
+            this.requiredItems = 0;
         }, 500);
 
         this.elementRef.classList.add('natural-gallery-js');
@@ -325,10 +326,9 @@ export abstract class AbstractGallery<Model extends ModelAttributes = ModelAttri
     }
 
     public addItemToPhotoSwipeCollection(item: Item<Model>) {
-        const photoSwipeId = this.domCollection.length - 1;
-
         /* istanbul ignore next */
         item.rootElement?.addEventListener('zoom', () => {
+            const photoSwipeId = this.collection.indexOf(item);
             this.psLightbox?.loadAndOpen(photoSwipeId);
         });
     }
@@ -350,13 +350,7 @@ export abstract class AbstractGallery<Model extends ModelAttributes = ModelAttri
             this._collection.push(item);
         });
 
-        if (addToDom && collectionSize === 0) {
-            // First addition : collection size is 0
-            this.onPageAdd();
-        } else if (addToDom && collectionSize > 0) {
-            // Gallery collection completion (after first addition) : collection size > 0
-            this.onScroll();
-        }
+        this.onItemsAdded(addToDom, collectionSize);
     }
 
     public setLabelHover(activate: boolean): void {
@@ -468,7 +462,7 @@ export abstract class AbstractGallery<Model extends ModelAttributes = ModelAttri
 
         /* istanbul ignore next */
         this.psLightbox.addFilter('numItems', (): number => {
-            return this.domCollection.length;
+            return this.options.virtualScroll ? this.collection.length : this.domCollection.length;
         });
 
         /* istanbul ignore next */
@@ -480,7 +474,7 @@ export abstract class AbstractGallery<Model extends ModelAttributes = ModelAttri
                 w: item.model.enlargedWidth,
                 h: item.model.enlargedHeight,
                 msrc: item.model.thumbnailSrc,
-                element: item.rootElement!,
+                element: item.rootElement ?? undefined,
                 thumbCropped: item.cropped,
                 alt: item.sanitizedTitle,
                 item,
@@ -544,13 +538,22 @@ export abstract class AbstractGallery<Model extends ModelAttributes = ModelAttri
      * available to be added immediately to DOM when user scrolls.
      *
      */
-    protected requestItems(): void {
+    protected requestItems(once = false, limit: number | null = null): void {
         const estimatedPerRow = this.getEstimatedColumnsPerRow();
 
         // +1 because we have to get more than what is used under onPageAdd().
         // Without +1 all items are always added to DOM and gallery will loop load until end of collection
-        const limit = estimatedPerRow * this.getRowsPerPage() + 1;
-        this.dispatchEvent('pagination', {offset: this.collection.length, limit: limit});
+        const offset = this.collection.length;
+        if (once && this.requestedIndexesLog.indexOf(offset) >= 0) {
+            return;
+        }
+
+        const wantedLimit = limit ?? estimatedPerRow * this.getRowsPerPage() + 1;
+        this.dispatchEvent('pagination', {offset, limit: wantedLimit});
+
+        if (once) {
+            this.requestedIndexesLog.push(offset);
+        }
     }
 
     /**
@@ -574,13 +577,29 @@ export abstract class AbstractGallery<Model extends ModelAttributes = ModelAttri
      */
     protected addItemToDOM(item: Item<Model>, destination: HTMLElement = this.bodyElementRef): void {
         this.domCollection.push(item);
+        this.attachItemToDOM(item, destination);
+        this.trackItemAddedToDOM(item);
+    }
 
+    protected attachItemToDOM(item: Item<Model>, destination: HTMLElement = this.bodyElementRef): void {
         destination.appendChild(item.init());
+        this.bindItemDOMEvents(item);
+    }
 
+    protected trackItemAddedToDOM(item: Item<Model>, requestMoreItems = true): void {
         this.scrollBufferedItems.push(item);
-        this.requiredItems++;
+        if (requestMoreItems) {
+            this.requiredItems++;
+        }
         this.dispatchEvent('item-added-to-dom', item);
+    }
 
+    private bindItemDOMEvents(item: Item<Model>): void {
+        if (this.itemsWithDomListeners.has(item)) {
+            return;
+        }
+
+        this.itemsWithDomListeners.add(item);
         item.rootElement?.addEventListener('select', () => {
             this.dispatchEvent(
                 'select',
@@ -638,6 +657,35 @@ export abstract class AbstractGallery<Model extends ModelAttributes = ModelAttri
         this.bodyElementRef?.classList.remove('resizing');
     }
 
+    protected onItemsAdded(addToDom: boolean, collectionSize: number): void {
+        if (addToDom && collectionSize === 0) {
+            // First addition : collection size is 0
+            this.onPageAdd();
+        } else if (addToDom && collectionSize > 0) {
+            // Gallery collection completion (after first addition) : collection size > 0
+            this.onScroll();
+        }
+    }
+
+    protected onScrollUpdate(): void {
+        // Optional hook for layouts that need to react to every scroll event.
+    }
+
+    protected getScrollWrapper(): HTMLElement {
+        const element = this.scrollElementRef || this.document;
+        return element instanceof Document ? element.documentElement : element;
+    }
+
+    protected getScrollTop(): number {
+        const wrapper = this.getScrollWrapper();
+        return wrapper.scrollTop - (wrapper.clientTop || 0);
+    }
+
+    protected getViewportHeight(): number {
+        const wrapper = this.getScrollWrapper();
+        return wrapper.clientHeight || this.document.defaultView?.innerHeight || 0;
+    }
+
     protected dispatchEvent<K extends keyof CustomEventDetailMap<Model>>(
         name: K,
         data: CustomEventDetailMap<Model>[K],
@@ -683,6 +731,7 @@ export abstract class AbstractGallery<Model extends ModelAttributes = ModelAttri
             const wrapperHeight = wrapper.clientHeight;
             const scroll_delta = current_scroll_top - this.old_scroll_top;
             this.old_scroll_top = current_scroll_top;
+            this.onScrollUpdate();
 
             // "enableMoreLoading" is a setting coming from the BE bloking / enabling dynamic loading of thumbnail
             if (scroll_delta > 0 && current_scroll_top + wrapperHeight >= endOfGalleryAt) {
