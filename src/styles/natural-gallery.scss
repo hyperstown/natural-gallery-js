@@ -75,7 +75,9 @@
         }
     }
 
-    &.format-natural.virtual-scroll {
+    &.format-square.virtual-scroll,
+    &.format-natural.virtual-scroll,
+    &.format-masonry.virtual-scroll {
         .natural-gallery-body {
             display: block;
             position: relative;

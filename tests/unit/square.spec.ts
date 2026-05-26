@@ -1,6 +1,6 @@
 import {ModelAttributes, Square} from '../../src';
 import {describe, expect, it} from 'vitest';
-import {getContainerElement, getSize} from './utils';
+import {getContainerElement, getImages, getSize, scrollTo, setViewport} from './utils';
 import {getBaseExpectedOptions, testGallery} from './abstract-gallery';
 
 describe('Square Gallery', () => {
@@ -96,5 +96,27 @@ describe('Square Gallery', () => {
         ];
 
         expect(gallery.collection.map(getSize)).toEqual(result);
+    });
+
+    it('should virtualize square layout when enabled', async () => {
+        setViewport(1000, 700);
+        const container = getContainerElement(1000);
+        const gallery = new Square(container, {itemsPerRow: 4, gap: 4, virtualScroll: true});
+
+        gallery.addItems(getImages(100));
+
+        expect(gallery.collection.length).toBe(100);
+        expect(gallery.domCollection.length).toBeLessThan(100);
+        expect(container.querySelectorAll('.figure').length).toBe(gallery.domCollection.length);
+        expect(gallery.bodyElement.style.height).not.toBe('');
+
+        const firstRenderedItem = gallery.domCollection[0];
+        scrollTo(1800);
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        expect(gallery.collection.length).toBe(100);
+        expect(gallery.domCollection.length).toBeLessThan(100);
+        expect(gallery.domCollection).not.toContain(firstRenderedItem);
+        expect(container.querySelectorAll('.figure').length).toBe(gallery.domCollection.length);
     });
 });

@@ -220,7 +220,7 @@
   flex-wrap: wrap;
   justify-content: space-between;
 }
-.natural-gallery-js.format-natural.virtual-scroll .natural-gallery-body {
+.natural-gallery-js.format-square.virtual-scroll .natural-gallery-body, .natural-gallery-js.format-natural.virtual-scroll .natural-gallery-body, .natural-gallery-js.format-masonry.virtual-scroll .natural-gallery-body {
   display: block;
   position: relative;
 }
