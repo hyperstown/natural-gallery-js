@@ -238,7 +238,7 @@ describe('Natural Gallery', () => {
         expect(gallery.collection.map(getSize)).toEqual(result);
     });
 
-    it('should virtualize natural layout when enabled', () => {
+    it('should virtualize natural layout when enabled', async () => {
         setViewport(1000, 700);
         const container = getContainerElement(1000);
         const gallery = new Natural(container, {rowHeight: 300, gap: 4, virtualScroll: true});
@@ -252,6 +252,7 @@ describe('Natural Gallery', () => {
 
         const firstRenderedItem = gallery.domCollection[0];
         scrollTo(1800);
+        await new Promise(resolve => setTimeout(resolve, 20));
 
         expect(gallery.collection.length).toBe(100);
         expect(gallery.domCollection.length).toBeLessThan(100);

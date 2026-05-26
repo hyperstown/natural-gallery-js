@@ -722,6 +722,10 @@ export abstract class AbstractGallery<Model extends ModelAttributes = ModelAttri
         return wrapper.clientHeight || this.document.defaultView?.innerHeight || 0;
     }
 
+    protected shouldLoadMoreOnScroll(wrapperHeight: number): boolean {
+        return this.getGalleryScrollTop() + wrapperHeight >= this.elementRef.offsetHeight + this.options.infiniteScrollOffset;
+    }
+
     protected dispatchEvent<K extends keyof CustomEventDetailMap<Model>>(
         name: K,
         data: CustomEventDetailMap<Model>[K],
@@ -767,11 +771,7 @@ export abstract class AbstractGallery<Model extends ModelAttributes = ModelAttri
             this.onScrollUpdate();
 
             // "enableMoreLoading" is a setting coming from the BE bloking / enabling dynamic loading of thumbnail
-            if (
-                scroll_delta > 0 &&
-                this.getGalleryScrollTop() + wrapperHeight >=
-                    this.elementRef.offsetHeight + this.options.infiniteScrollOffset
-            ) {
+            if (scroll_delta > 0 && this.shouldLoadMoreOnScroll(wrapperHeight)) {
                 // When scrolling only add a row at once
                 this.onScroll();
             }

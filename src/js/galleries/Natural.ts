@@ -28,7 +28,13 @@ export class Natural<Model extends ModelAttributes = ModelAttributes> extends Ab
     private readonly virtualItemPositions = new Map<Item<Model>, VirtualItemPosition>();
     private readonly virtualRows: VirtualRow[] = [];
     private readonly virtualRenderedItems = new WeakSet<Item<Model>>();
+    private readonly virtualStyledItems = new WeakMap<Item<Model>, number>();
+    private virtualFirstRenderedRow = -1;
+    private virtualLastRenderedRow = -1;
+    private virtualRenderFrame = 0;
     private virtualHeight = 0;
+    private virtualLayoutVersion = 0;
+    private virtualGalleryStartScrollTop = 0;
 
     constructor(elementRef: HTMLElement, options: NaturalGalleryOptions, scrollElementRef?: HTMLElement | null) {
         super(elementRef, options, scrollElementRef);
@@ -53,33 +59,41 @@ export class Natural<Model extends ModelAttributes = ModelAttributes> extends Ab
         }
 
         const options = gallery.options;
+        let rowStartIndex = 0;
 
-        for (let chunkSize = 1; chunkSize <= items.length; chunkSize++) {
-            const chunk = items.slice(0, chunkSize);
-            const rowWidth = this.getRowWidth(
-                chunk.map(c => c.model),
-                options.rowHeight,
-                options.gap,
-                options.ratioLimit,
-            );
+        while (rowStartIndex < items.length) {
+            let rowRatio = 0;
+            let rowEndIndex = rowStartIndex;
 
-            if (rowWidth >= gallery.width) {
-                // if end of row
+            while (rowEndIndex < items.length) {
+                rowRatio += getImageRatio(items[rowEndIndex].model, options.ratioLimit);
+                const chunkSize = rowEndIndex - rowStartIndex + 1;
+                const rowWidth = options.gap * (chunkSize - 1) + rowRatio * options.rowHeight;
 
-                this.computeSizes(chunk, gallery.width, options.gap, currentRow, null, options.ratioLimit);
+                if (rowWidth >= gallery.width) {
+                    // if end of row
+                    const chunk = items.slice(rowStartIndex, rowEndIndex + 1);
+                    this.computeSizes(chunk, gallery.width, options.gap, currentRow, null, options.ratioLimit);
 
-                const nextRow = currentRow + 1;
-                if (toRow === null || nextRow <= toRow) {
-                    Natural.organizeItems(gallery, items.slice(chunkSize), fromRow, toRow, nextRow);
+                    currentRow++;
+                    rowStartIndex = rowEndIndex + 1;
+                    if (toRow !== null && currentRow > toRow) {
+                        return;
+                    }
+
+                    break;
                 }
 
-                break;
-            } else if (chunkSize === items.length) {
-                // if end of list
-                // the width is not fixed as we have not enough items
-                // size of images are indexed on max row height.
-                this.computeSizes(chunk, null, options.gap, currentRow, options.rowHeight, options.ratioLimit);
-                break;
+                if (rowEndIndex === items.length - 1) {
+                    // if end of list
+                    // the width is not fixed as we have not enough items
+                    // size of images are indexed on max row height.
+                    const chunk = items.slice(rowStartIndex, rowEndIndex + 1);
+                    this.computeSizes(chunk, null, options.gap, currentRow, options.rowHeight, options.ratioLimit);
+                    return;
+                }
+
+                rowEndIndex++;
             }
         }
     }
@@ -174,7 +188,7 @@ export class Natural<Model extends ModelAttributes = ModelAttributes> extends Ab
         if (this.isVirtualScrollEnabled()) {
             this.bodyElementRef?.classList.remove('resizing');
             this.refreshVirtualLayout();
-            this.renderVirtualWindow();
+            this.renderVirtualWindow(true);
             this.flushBufferedItems();
             return;
         }
@@ -191,7 +205,7 @@ export class Natural<Model extends ModelAttributes = ModelAttributes> extends Ab
         }
 
         this.refreshVirtualLayout();
-        this.renderVirtualWindow();
+        this.renderVirtualWindow(true);
         this.flushBufferedItems();
         this.updateNextButtonVisibility();
     }
@@ -201,7 +215,7 @@ export class Natural<Model extends ModelAttributes = ModelAttributes> extends Ab
             return;
         }
 
-        this.renderVirtualWindow();
+        this.scheduleVirtualRender();
     }
 
     protected updateNextButtonVisibility(): void {
@@ -211,6 +225,17 @@ export class Natural<Model extends ModelAttributes = ModelAttributes> extends Ab
         }
 
         super.updateNextButtonVisibility();
+    }
+
+    protected shouldLoadMoreOnScroll(wrapperHeight: number): boolean {
+        if (!this.isVirtualScrollEnabled()) {
+            return super.shouldLoadMoreOnScroll(wrapperHeight);
+        }
+
+        return (
+            this.getScrollTop() - this.virtualGalleryStartScrollTop + wrapperHeight >=
+            this.virtualHeight + this.options.infiniteScrollOffset
+        );
     }
 
     protected getEstimatedColumnsPerRow(): number {
@@ -237,6 +262,8 @@ export class Natural<Model extends ModelAttributes = ModelAttributes> extends Ab
             this.virtualItemPositions.clear();
             this.virtualRows.length = 0;
             this.virtualHeight = 0;
+            this.virtualFirstRenderedRow = -1;
+            this.virtualLastRenderedRow = -1;
             this.bodyElementRef.style.height = '';
             return;
         }
@@ -244,6 +271,8 @@ export class Natural<Model extends ModelAttributes = ModelAttributes> extends Ab
         this.organizeItems(this.collection, 0);
         this.virtualItemPositions.clear();
         this.virtualRows.length = 0;
+        this.virtualLayoutVersion++;
+        this.virtualGalleryStartScrollTop = this.getGalleryStartScrollTop();
 
         let rowTop = 0;
         let rowStartIndex = 0;
@@ -288,22 +317,52 @@ export class Natural<Model extends ModelAttributes = ModelAttributes> extends Ab
         this.bodyElementRef.style.height = `${this.virtualHeight}px`;
     }
 
-    private renderVirtualWindow(): void {
+    private scheduleVirtualRender(): void {
+        if (this.virtualRenderFrame) {
+            return;
+        }
+
+        const view = this.document.defaultView;
+        const render = () => {
+            this.virtualRenderFrame = 0;
+            this.renderVirtualWindow();
+        };
+
+        if (!view) {
+            render();
+        } else if (view.requestAnimationFrame) {
+            this.virtualRenderFrame = view.requestAnimationFrame(render);
+        } else {
+            this.virtualRenderFrame = view.setTimeout(render, 16);
+        }
+    }
+
+    private renderVirtualWindow(force = false): void {
         if (!this.collection.length || !this.virtualRows.length) {
             return;
         }
 
-        const galleryScrollTop = this.getGalleryScrollTop();
+        const galleryScrollTop = this.getScrollTop() - this.virtualGalleryStartScrollTop;
         const viewportTop = Math.max(galleryScrollTop, 0);
         const viewportBottom = viewportTop + this.getViewportHeight();
         const overscan = this.options.virtualScrollOverscanRows * (this.options.rowHeight + this.options.gap);
         const firstRow = this.findFirstVirtualRow(viewportTop - overscan);
         const lastRow = this.findLastVirtualRow(viewportBottom + overscan);
+
+        if (viewportBottom + overscan >= this.virtualHeight + this.options.infiniteScrollOffset) {
+            this.requestItems(true);
+        }
+
+        if (!force && firstRow === this.virtualFirstRenderedRow && lastRow === this.virtualLastRenderedRow) {
+            return;
+        }
+
         const itemsToRender = this.collection.slice(
             this.virtualRows[firstRow].startIndex,
             this.virtualRows[lastRow].endIndex + 1,
         );
         const nextItems = new Set(itemsToRender);
+        const currentItems = new Set(this.domCollection);
 
         this.domCollection.forEach(item => {
             if (!nextItems.has(item)) {
@@ -312,8 +371,11 @@ export class Natural<Model extends ModelAttributes = ModelAttributes> extends Ab
         });
 
         itemsToRender.forEach(item => {
-            this.attachItemToDOM(item);
-            this.styleVirtualItem(item);
+            if (!currentItems.has(item) || item.rootElement?.parentElement !== this.bodyElementRef) {
+                this.attachItemToDOM(item);
+            }
+
+            this.styleVirtualItem(item, force);
 
             if (!this.virtualRenderedItems.has(item)) {
                 this.virtualRenderedItems.add(item);
@@ -322,10 +384,8 @@ export class Natural<Model extends ModelAttributes = ModelAttributes> extends Ab
         });
 
         this._domCollection = itemsToRender;
-
-        if (viewportBottom + overscan >= this.virtualHeight + this.options.infiniteScrollOffset) {
-            this.requestItems(true);
-        }
+        this.virtualFirstRenderedRow = firstRow;
+        this.virtualLastRenderedRow = lastRow;
     }
 
     private findFirstVirtualRow(top: number): number {
@@ -369,7 +429,11 @@ export class Natural<Model extends ModelAttributes = ModelAttributes> extends Ab
         return result;
     }
 
-    private styleVirtualItem(item: Item<Model>): void {
+    private styleVirtualItem(item: Item<Model>, force = false): void {
+        if (!force && this.virtualStyledItems.get(item) === this.virtualLayoutVersion) {
+            return;
+        }
+
         const position = this.virtualItemPositions.get(item);
         const element = item.rootElement;
 
@@ -381,6 +445,7 @@ export class Natural<Model extends ModelAttributes = ModelAttributes> extends Ab
         element.style.left = '0';
         element.style.top = '0';
         element.style.transform = `translate3d(${position.left}px, ${position.top}px, 0)`;
+        this.virtualStyledItems.set(item, this.virtualLayoutVersion);
     }
 
     private completeLastRow(): void {
