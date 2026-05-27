@@ -14,8 +14,8 @@
     "homepage": "https://github.com/Ecodev/natural-gallery-js#readme",
     "type": "module",
     "exports": {
-        "./assets/": "./natural-gallery.js",
-        "./assets/natural-gallery.css": "./natural-gallery.css"
+        ".": "./docs/assets/natural-gallery-js/natural-gallery.js",
+        "./natural-gallery.css": "./docs/assets/natural-gallery-js/natural-gallery.css"
     },
     "typings": "./assets/natural-gallery.d.ts",
     "engines": {
